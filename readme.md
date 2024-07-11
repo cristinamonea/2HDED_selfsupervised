@@ -3,7 +3,7 @@
 ### Environment configuration
 
 To set up the environment, run the following commands:
-'''bash
+'''
 conda create --name 2hded-env
 conda activate 2hded-env
 
