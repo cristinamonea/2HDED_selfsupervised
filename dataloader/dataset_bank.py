@@ -29,9 +29,13 @@ def dataset_target_only(root, phase):
 
 def dataset_simcol3d(root, data_split, tasks):
     print(os.path.exists(join(root, 'rgb', data_split)))
-    input_list = sorted(glob.glob(join(root, 'rgb_30mm', data_split, '*.png')))
-    targets_list = sorted(glob.glob(join(root, 'rgb_20mm', data_split, '*.png')))
-    depths_list = sorted(glob.glob(join(root, 'depth', data_split, '*.png')))
+    # specify here the input folder (defocalisation for F1)
+    input_list = sorted(glob.glob(join(root, 'rgb_30mm', data_split, '*.png'))) 
+    # specify here the target folder (defocalisation for F2)
+    targets_list = sorted(glob.glob(join(root, 'rgb_100mm', data_split, '*.png'))) 
+    # specify here the depth gt folder (used just for evaluation in real time if the network is learning properly, not used for training)
+    depths_list = sorted(glob.glob(join(root, 'depth', data_split, '*.png'))) 
+    # specify here the aif gt folder
     aif_list = sorted(glob.glob(join(root, 'aif', data_split, '*.png')))
 
     # return list(zip(input_list, targets_list))

@@ -3,7 +3,7 @@ from options.extra_args_mtl import MTL_Options as TrainOptions
 from dataloader.data_loader import CreateDataLoader
 
 # Load options
-opt = TrainOptions(dataroot=r"C:\Users\ubuntu\Desktop\Cristina\disertation-code\depth_estimation_endoscopy\datasets\Simcol3D_480_mirrored",
+opt = TrainOptions(dataroot=r".\datasets\Simcol3D",
                    name="simcol3d_480_mirrored_30-100_l1_loss_2_100mm_30mm", 
                    imageSize=[480], 
                    outputSize=[480],
