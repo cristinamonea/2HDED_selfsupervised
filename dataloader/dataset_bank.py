@@ -49,4 +49,4 @@ def dataset_idfd(root, data_split):
     targets_list = sorted(glob.glob(join(root, 'All_In_Focus', data_split, '*.JPG'))) + sorted(glob.glob(join(root, 'All_In_Focus', '*.jpg'))) 
     # specify here the depth gt folder (used just for evaluation in real time if the network is learning properly, not used for training)
     depths_list = sorted(glob.glob(join(root, 'Depth', data_split, '*.png'))) 
-    return input_list[:4], targets_list[:4], depths_list[:4], []
+    return input_list, targets_list, depths_list, []
