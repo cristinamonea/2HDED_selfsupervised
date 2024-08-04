@@ -1,9 +1,3 @@
-# -*- coding: utf-8 -*-
-"""
-Created on Sat Jul 27 15:15:37 2024
-
-@author: ubuntu
-"""
 
 import os
 import random
