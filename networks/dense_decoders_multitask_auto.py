@@ -476,7 +476,7 @@ class DenseUNet_aif(nn.Module):
             task_block.add_module('last_conv',
                                         conv3x3(num_features, outputs_nc[task_i]))
             
-            task_block.add_module('last_sigmoid_layer', ScaledSigmoid())
+            task_block.add_module('last_sigmoid_layer', ScaledSigmoid(10000))
 
             self.decoder_tasks.append(task_block)
 

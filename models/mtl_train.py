@@ -72,9 +72,13 @@ class MultiTaskGen(TrainModel):
             
             self.scheduler = StepLR(self.optimG, step_size=5, gamma=0.7169)
 
-        self.generator = GaussPSF(self.opt.kernel_size, 0, 200, self.opt.pixel_size, self.opt.scale).cuda()
+        self.generator = GaussPSF(self.opt.kernel_size, 1e-3, 10000, self.opt.pixel_size, self.opt.scale).cuda()
         self.generator = torch.nn.DataParallel(self.generator)
         self.generator = self.generator.cuda()
+
+        self.generator_2 = GaussPSF(self.opt.kernel_size, 1e-3, 10000, self.opt.pixel_size, self.opt.scale).cuda()
+        self.generator_2 = torch.nn.DataParallel(self.generator)
+        self.generator_2 = self.generator_2.cuda()
         
             # self.criterion = self.create_reg_criterion()
         self.n_tasks = len(self.opt.tasks)
@@ -191,125 +195,159 @@ class MultiTaskGen(TrainModel):
     
 ##########################
     def _train_batch(self):
-            input_cpu, target_cpu, depth_cpu, aif_cpu = next(self.data_iter)
+            input_cpu, target_cpu, depth_cpu = next(self.data_iter)
 
             input_data = input_cpu.to(self.device)
             input_data.requires_grad = True
-            self.set_current_visuals(input_100mm=input_data.data)
+            target_data = target_cpu.to(self.device)
 
-            depth, aif_pred = self.netG.forward(input_data)
-            self.set_current_visuals(aif_pred=aif_pred.data)
+            depth_pred, aif_pred = self.netG.forward(input_data)
 
-            if (torch.isnan(depth).any() or torch.isnan(aif_pred).any()):
+            if (torch.isnan(depth_pred).any() or torch.isnan(aif_pred).any()):
                 print("NaN at network output")
+
+            ################## Training on iDFD #################################
+            img_refoc_aperture_1 = self.generator(aif_pred, depth_pred, self.opt.focal_depth, self.opt.aperture, self.opt.focal_length)
+            img_refoc_aperture_2 = self.generator(aif_pred, depth_pred, self.opt.focal_depth, self.opt.aperture_2, self.opt.focal_length)
+
+            self.set_current_visuals(orig_aperture_1=input_data.data)
+            self.set_current_visuals(orig_aperture_2=target_data.data)            
+            self.set_current_visuals(aif_pred=aif_pred.data)
+            self.set_current_visuals(depth_gt=depth_cpu.data)
+            self.set_current_visuals(depth_pred=depth_pred.data)
+            # # Loss for refoc image aperture f/2.8
+            # # L1 Loss
+            # l1 = nn.L1Loss()
+            # l1_loss_aperture_1=l1(img_refoc_aperture_1, input_data)
+
+            # Charb Loss
+            charb_aperture_1 = self.charb(img_refoc_aperture_1, input_data)
+
+            # SSIM Loss
+            lssim_aperture_1 = 1 - pytorch_ssim.ssim(img_refoc_aperture_1, input_data)
+
+            # # Loss for refoc image aperture f/10
+            # # L1 Loss
+            # l1 = nn.L1Loss()
+            # l1_loss_aperture_2=l1(img_refoc_aperture_2, target_data)
+
+            # Charb Loss
+            charb_aperture_2 = self.charb(img_refoc_aperture_2, target_data)
+
+            # SSIM Loss
+            lssim_aperture_2 = 1 - pytorch_ssim.ssim(img_refoc_aperture_2, target_data)
+
+            # # Smoothness loss
+            #try first using the f\10 image as reference, than the predicted aif
+            grad_aif_depth = self.gradient_aif_depth(aif_pred, depth_pred)
+
+            self.loss_error = (charb_aperture_1 + 2*lssim_aperture_1) + 2*(charb_aperture_2 + 2*lssim_aperture_2) + 0.01 * grad_aif_depth
+
+            ################## End of training on iDFD #################################
                 
+            # ################## Training on SimCol3D #################################
+            # img_refoc_30mm = self.generator(aif_pred, depth_pred, torch.Tensor([100] * self.batchSize).float().cuda(), self.opt.aperture, self.opt.focal_length)
+            # img_refoc_100mm = self.generator(aif_pred, depth_pred, torch.Tensor([30] * self.batchSize).float().cuda(), self.opt.aperture, self.opt.focal_length)
 
-            img_refoc_30mm = self.generator(aif_pred, depth, torch.Tensor([100] * self.batchSize).float().cuda(), self.opt.aperture, self.opt.focal_length)
-            img_refoc_100mm = self.generator(aif_pred, depth, torch.Tensor([30] * self.batchSize).float().cuda(), self.opt.aperture, self.opt.focal_length)
+            # #self.set_current_visuals(img_refoc_30mm=img_refoc_30mm.data)
+            # # self.set_current_visuals(target_100mm=target_cpu.data)
+            # self.set_current_visuals(depth_pred=depth_pred.data)
 
-            #self.set_current_visuals(img_refoc_30mm=img_refoc_30mm.data)
-            # self.set_current_visuals(target_100mm=target_cpu.data)
-            self.set_current_visuals(depth_pred=depth.data)
-
-            # if (torch.isnan(img_refoc_100mm).any() or torch.isnan(img_refoc_100mm).any()):
-            #     print("NaN at refocalisation")
+            # # if (torch.isnan(img_refoc_100mm).any() or torch.isnan(img_refoc_100mm).any()):
+            # #     print("NaN at refocalisation")
             
-            losses = []
+            # losses = []
         
-            target = target_cpu.to(self.device)
+            # target = target_cpu.to(self.device)
             
-            # aif = aif_cpu.to(self.device)
+            # # aif = aif_cpu.to(self.device)
 
-            # # Loss for refoc image 30mm
-            l1 = nn.L1Loss()
-            l1_loss_100mm=l1(img_refoc_100mm, target)
-            # losses.append(l1_loss_100mm)
-            # # self.set_current_errors(L1_refoc=l1_loss_30mm.item())
-            
-            
-            ssim_value_100mm = pytorch_ssim.ssim(img_refoc_100mm, target)
-            lssim_100mm = 1 - ssim_value_100mm
-            # self.set_current_errors(SSIM_refoc=lssim_30mm.item())
-
-             # Loss for refoc image 30mm
-            # charb_100mm = self.charb(img_refoc_100mm, target)
-            # self.set_current_errors(L1_refoc=l1_loss_30mm.item())
+            # # # Loss for refoc image 30mm
+            # l1 = nn.L1Loss()
+            # l1_loss_100mm=l1(img_refoc_100mm, target)
+            # # losses.append(l1_loss_100mm)
+            # # # self.set_current_errors(L1_refoc=l1_loss_30mm.item())
             
             
             # ssim_value_100mm = pytorch_ssim.ssim(img_refoc_100mm, target)
             # lssim_100mm = 1 - ssim_value_100mm
-            # self.set_current_errors(SSIM_refoc=lssim_30mm.item())
+            # # self.set_current_errors(SSIM_refoc=lssim_30mm.item())
+
+            #  # Loss for refoc image 30mm
+            # # charb_100mm = self.charb(img_refoc_100mm, target)
+            # # self.set_current_errors(L1_refoc=l1_loss_30mm.item())
+            
+            
+            # # ssim_value_100mm = pytorch_ssim.ssim(img_refoc_100mm, target)
+            # # lssim_100mm = 1 - ssim_value_100mm
+            # # self.set_current_errors(SSIM_refoc=lssim_30mm.item())
 
 
-            # # Loss for refoc image 100mm
-            l1 = nn.L1Loss()
-            l1_loss_30mm=l1(img_refoc_30mm, input_data)
-            # losses.append(l1_loss_30mm)
-            # #self.set_current_errors(L1_refoc=l1_loss_100mm.item())
+            # # # Loss for refoc image 100mm
+            # l1 = nn.L1Loss()
+            # l1_loss_30mm=l1(img_refoc_30mm, input_data)
+            # # losses.append(l1_loss_30mm)
+            # # #self.set_current_errors(L1_refoc=l1_loss_100mm.item())
+            
+
+            # # ssim_value_30mm = pytorch_ssim.ssim(img_refoc_30mm, input_data)
+            # # lssim_30mm = 1 - ssim_value_30mm
+            # # #self.set_current_errors(SSIM_refoc=lssim_100mm.item())
+
+            #  # Loss for refoc image 100mm
+            # # charb_30mm=self.charb(img_refoc_30mm, input_data)
+            # # losses.append(charb_30mm)
+            # # #self.set_current_errors(L1_refoc=l1_loss_100mm.item())
             
 
             # ssim_value_30mm = pytorch_ssim.ssim(img_refoc_30mm, input_data)
             # lssim_30mm = 1 - ssim_value_30mm
             # #self.set_current_errors(SSIM_refoc=lssim_100mm.item())
 
-             # Loss for refoc image 100mm
-            # charb_30mm=self.charb(img_refoc_30mm, input_data)
-            # losses.append(charb_30mm)
+            # #Aif loss
+            # # charb_aif=self.charb(aif_pred, aif)
             # #self.set_current_errors(L1_refoc=l1_loss_100mm.item())
-            
+            # # l1 = nn.L1Loss()
+            # # l1_aif=l1(aif_pred, aif)
 
-            ssim_value_30mm = pytorch_ssim.ssim(img_refoc_30mm, input_data)
-            lssim_30mm = 1 - ssim_value_30mm
-            #self.set_current_errors(SSIM_refoc=lssim_100mm.item())
+            # # ssim_value_aif = pytorch_ssim.ssim(aif_pred, aif)
+            # # lssim_aif = 1 - ssim_value_aif
 
-            #Aif loss
-            # charb_aif=self.charb(aif_pred, aif)
-            #self.set_current_errors(L1_refoc=l1_loss_100mm.item())
-            # l1 = nn.L1Loss()
-            # l1_aif=l1(aif_pred, aif)
+            # # # Sharpness loss for 30mm
+            # # sharp_30mm = self.sharpness_loss(img_refoc_30mm, target)
+            # # # Sharpness loss for 100mm
+            # # sharp_100mm = self.sharpness_loss(img_refoc_100mm, input_data)
 
-            # ssim_value_aif = pytorch_ssim.ssim(aif_pred, aif)
-            # lssim_aif = 1 - ssim_value_aif
+            # # Smoothness loss
+            # # grad_aif_depth = self.gradient_aif_depth(aif_pred, depth) 
 
-            # # Sharpness loss for 30mm
-            # sharp_30mm = self.sharpness_loss(img_refoc_30mm, target)
-            # # Sharpness loss for 100mm
-            # sharp_100mm = self.sharpness_loss(img_refoc_100mm, input_data)
-
-            # Smoothness loss
-            # grad_aif_depth = self.gradient_aif_depth(aif_pred, depth) 
-
-            #Charb
-            # aif_charb = self.charb(aif, aif_pred)
+            # #Charb
+            # # aif_charb = self.charb(aif, aif_pred)
             
     
-            #self.loss_error = (charb_aif + 2*lssim_aif) + (charb_30mm + 2*lssim_30mm) + (charb_100mm + 2*lssim_100mm) #+ 0.001*grad_aif_depth #+ aif_charb #+ 0.0001*sharp_30mm + 0.0001*sharp_100mm
-            self.loss_error = (l1_loss_30mm + 2*lssim_30mm) + 2*(l1_loss_100mm + 2*lssim_100mm)
-            if (torch.isnan(self.loss_error)):
-                print("NaN at loss calculation")
+            # #self.loss_error = (charb_aif + 2*lssim_aif) + (charb_30mm + 2*lssim_30mm) + (charb_100mm + 2*lssim_100mm) #+ 0.001*grad_aif_depth #+ aif_charb #+ 0.0001*sharp_30mm + 0.0001*sharp_100mm
+            # self.loss_error = (l1_loss_30mm + 2*lssim_30mm) + 2*(l1_loss_100mm + 2*lssim_100mm)
+            ################## End of Training on SimCol3D #################################
+
+            # if (torch.isnan(self.loss_error)):
+            #     print("NaN at loss calculation")
 
             self.set_current_errors(L2HDED=self.loss_error.item())
-            # self.loss_error = (0.5*losses[0])+(0.5*losses[1])
 
             self.optimG.zero_grad()
             self.loss_error.backward()
             
             ###Scheduler
             self.optimG.step()
-            # val_loss = self.calculate_val_loss(val_loader)
-            #self.lr_sc.step(val_loss)
-            #print(self.get_lr(self.optimG))
 
             self.n_iterations += 1 # outG[0].shape[0]
 
             with torch.no_grad():
-                # show each loss
+                # Calculate depth estimation error, just for visualisation
                 l1 = nn.L1Loss()
-                l1_depth = l1(depth.to('cpu'), depth_cpu)
+                l1_depth = l1(depth_pred.to('cpu'), depth_cpu)
                 self.set_current_errors(L1_true_depth=l1_depth.item())
-                # for i, loss_task in enumerate(losses):
-                #     self.set_current_errors_string('loss{}'.format(i), self.to_numpy(loss_task))
-       
+
        #this method is used to evaluate
     def evaluate(self, data_loader, epoch):
         if self.opt.validate and self.total_iter % self.opt.val_freq == 0:
@@ -447,71 +485,114 @@ class MultiTaskGen(TrainModel):
             data_iter = iter(data_loader)
             for _ in pbar_val:
                 pbar_val.set_description('[Validation]')
-                input_cpu, target_cpu, depth_cpu, aif_cpu = next(data_iter)#.next()
-                self.val_current_visuals.update([("input_100mm", input_cpu)])
+                input_cpu, target_cpu, depth_cpu = next(data_iter)#.next()
+
                 input_data = input_cpu.to(self.device)
                 target_data = target_cpu.to(self.device)
-                aif_data = aif_cpu.to(self.device)
+                #aif_data = aif_cpu.to(self.device)
+
+                depth_pred, aif_pred = model.forward(input_data)
+
+                ################## Validate on iDFD #################################
+                img_refoc_aperture_1 = self.generator(aif_pred, depth_pred, self.opt.focal_depth_val, self.opt.aperture_val, self.opt.focal_length_val)
+                img_refoc_aperture_2 = self.generator(aif_pred, depth_pred, self.opt.focal_depth_val, self.opt.aperture_val_2, self.opt.focal_length_val)
+
+                self.val_current_visuals.update([("orig_aperture_1", input_data.data)])
+                self.val_current_visuals.update([("orig_aperture_2", target_data.data)])
+                self.val_current_visuals.update([("aif_pred", aif_pred.data)])
+                self.val_current_visuals.update([("depth_gt", depth_cpu.data)])
+                self.val_current_visuals.update([("depth_pred", depth_pred.data)])
+
+                # # Loss for refoc image aperture f/2.8
+                # # L1 Loss
+                # l1 = nn.L1Loss()
+                # l1_loss_aperture_1=l1(img_refoc_aperture_1, input_data)
+
+                # Charb Loss
+                charb_aperture_1 = self.charb(img_refoc_aperture_1, input_data)
+
+                # SSIM Loss
+                lssim_aperture_1 = 1 - pytorch_ssim.ssim(img_refoc_aperture_1, input_data)
+
+                # # Loss for refoc image aperture f/10
+                # # L1 Loss
+                # l1 = nn.L1Loss()
+                # l1_loss_aperture_2=l1(img_refoc_aperture_2, target_data)
+
+                # Charb Loss
+                charb_aperture_2 = self.charb(img_refoc_aperture_2, target_data)
+
+                # SSIM Loss
+                lssim_aperture_2 = 1 - pytorch_ssim.ssim(img_refoc_aperture_2, target_data)
+
+                # # Smoothness loss
+                #try first using the f\10 image as reference, than the predicted aif
+                grad_aif_depth = self.gradient_aif_depth(aif_pred, depth_pred)
+
+                self.loss_error = (charb_aperture_1 + 2*lssim_aperture_1) + 2*(charb_aperture_2 + 2*lssim_aperture_2) + 0.01 * grad_aif_depth
+
+            ################## End of validation on iDFD #################################
                 
-                depth, aif_pred = model.forward(input_data)
-                aif_pred_list.append(aif_pred)
+                # ################## Validate on SimCol3D #################################
+            #     aif_pred_list.append(aif_pred)
 
-                img_refoc_30mm = self.generator(aif_pred, depth, torch.Tensor([100] * 1).float().cuda(), self.opt.aperture_val, self.opt.focal_length_val)
-                img_refoc_100mm = self.generator(aif_pred, depth, torch.Tensor([30] * 1).float().cuda(), self.opt.aperture_val, self.opt.focal_length_val)
+            #     img_refoc_30mm = self.generator(aif_pred, depth, torch.Tensor([100] * 1).float().cuda(), self.opt.aperture_val, self.opt.focal_length_val)
+            #     img_refoc_100mm = self.generator(aif_pred, depth, torch.Tensor([30] * 1).float().cuda(), self.opt.aperture_val, self.opt.focal_length_val)
 
-                # Loss for refoc image 30mm
-                l1 = nn.L1Loss()
-                l1_loss_100mm=l1(img_refoc_100mm, target_data)
-                # # self.set_current_errors(L1_refoc=l1_loss_100mm.item())
+            #     # Loss for refoc image 30mm
+            #     l1 = nn.L1Loss()
+            #     l1_loss_100mm=l1(img_refoc_100mm, target_data)
+            #     # # self.set_current_errors(L1_refoc=l1_loss_100mm.item())
                 
-                # # charb_100mm = self.charb(img_refoc_100mm, target_data)
-                # # self.set_current_errors(L1_refoc=l1_loss_30mm.item())
+            #     # # charb_100mm = self.charb(img_refoc_100mm, target_data)
+            #     # # self.set_current_errors(L1_refoc=l1_loss_30mm.item())
 
-                ssim_value_100mm = pytorch_ssim.ssim(img_refoc_100mm, target_data)
-                lssim_100mm = 1 - ssim_value_100mm
-                # self.set_current_errors(SSIM_refoc=lssim_100mm.item())
+            #     ssim_value_100mm = pytorch_ssim.ssim(img_refoc_100mm, target_data)
+            #     lssim_100mm = 1 - ssim_value_100mm
+            #     # self.set_current_errors(SSIM_refoc=lssim_100mm.item())
 
-                # Loss for refoc image 100mm
-                l1 = nn.L1Loss()
-                l1_loss_30mm=l1(img_refoc_30mm, input_data)
-                #self.set_current_errors(L1_refoc=l1_loss_100mm.item())
-                # charb_30mm = self.charb(img_refoc_30mm, input_data)
+            #     # Loss for refoc image 100mm
+            #     l1 = nn.L1Loss()
+            #     l1_loss_30mm=l1(img_refoc_30mm, input_data)
+            #     #self.set_current_errors(L1_refoc=l1_loss_100mm.item())
+            #     # charb_30mm = self.charb(img_refoc_30mm, input_data)
                 
 
-                ssim_value_30mm = pytorch_ssim.ssim(img_refoc_30mm, input_data)
-                lssim_30mm = 1 - ssim_value_30mm
-                #self.set_current_errors(SSIM_refoc=lssim_100mm.item())
+            #     ssim_value_30mm = pytorch_ssim.ssim(img_refoc_30mm, input_data)
+            #     lssim_30mm = 1 - ssim_value_30mm
+            #     #self.set_current_errors(SSIM_refoc=lssim_100mm.item())
 
-                # # Sharpness loss for 30mm
-                # sharp_30mm = self.sharpness_loss(img_refoc_30mm, target)
-                # # Sharpness loss for 100mm
-                # sharp_100mm = self.sharpness_loss(img_refoc_100mm, input_data)
+            #     # # Sharpness loss for 30mm
+            #     # sharp_30mm = self.sharpness_loss(img_refoc_30mm, target)
+            #     # # Sharpness loss for 100mm
+            #     # sharp_100mm = self.sharpness_loss(img_refoc_100mm, input_data)
 
-                # charb_aif = self.charb(aif_pred, aif_data)
+            #     # charb_aif = self.charb(aif_pred, aif_data)
                 
-                l1_aif = l1(aif_pred, aif_data)
+            #     l1_aif = l1(aif_pred, aif_data)
 
-                ssim_value_aif = pytorch_ssim.ssim(aif_pred, aif_data)
-                lssim_aif = 1 - ssim_value_aif
+            #     ssim_value_aif = pytorch_ssim.ssim(aif_pred, aif_data)
+            #     lssim_aif = 1 - ssim_value_aif
 
-                # grad_aif_depth = self.gradient_aif_depth(aif_pred, depth) 
+            #     # grad_aif_depth = self.gradient_aif_depth(aif_pred, depth) 
 
-                #Charb
-                # aif_charb = self.charb(aif_data, aif_pred)
+            #     #Charb
+            #     # aif_charb = self.charb(aif_data, aif_pred)
                 
-                self.loss_error =  (l1_loss_30mm + 2*lssim_30mm) + 2*(l1_loss_100mm + 2*lssim_100mm)
+            #     self.loss_error =  (l1_loss_30mm + 2*lssim_30mm) + 2*(l1_loss_100mm + 2*lssim_100mm)
 
+               
+                
+            # self.val_current_visuals.update([("input_100mm", input_cpu)])
+            # self.val_current_visuals.update([("aif_pred", aif_pred)])
+            # # self.val_current_visuals.update([("img_refoc_30mm", img_refoc_30mm)])
+            # self.val_current_visuals.update([("target_100mm", target_cpu)])
+            # self.val_current_visuals.update([("depth_pred", depth)])
+            ################## End of validation on SimCol3D #################################
                 L2hded_error += self.loss_error
 
                 l1 = nn.L1Loss()
-                l1_true_depth += l1(depth.to('cpu'), depth_cpu)                                  
-               
-                
-            self.val_current_visuals.update([("input_100mm", input_cpu)])
-            self.val_current_visuals.update([("aif_pred", aif_pred)])
-            # self.val_current_visuals.update([("img_refoc_30mm", img_refoc_30mm)])
-            self.val_current_visuals.update([("target_100mm", target_cpu)])
-            self.val_current_visuals.update([("depth_pred", depth)])
+                l1_true_depth += l1(depth_pred.to('cpu'), depth_cpu)                                  
 
             self.val_errors.update([("L2HDED", L2hded_error.item() / len(data_loader))])
             self.val_errors.update([("l1_true_depth", l1_true_depth / len(data_loader))])

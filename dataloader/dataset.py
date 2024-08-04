@@ -27,6 +27,7 @@ class DatasetFromFolder(data.Dataset):
         check_files(self.input_list, root)
         check_files(self.target_list, root)
         check_files(self.depth_list, root)
+        # check_files(self.aif_list, root)
         # here, we have a list with gt, file.png... and label, file.png...
         self.data_transform = data_transform
         # self.dataset_files_list = dataset_files_list
@@ -54,7 +55,7 @@ class DatasetFromFolder(data.Dataset):
         input_img = load_img(self.input_list[index])[0]
         target_img = load_img(self.target_list[index])[0]
         depth = load_img(self.depth_list[index])[0]
-        aif = load_img(self.aif_list[index])[0]
+        # aif = load_img(self.aif_list[index])[0] #for simcol3d uncomment this line
 
         if self.crop:
             crop_dims = get_params(target_img[0], crop_size=[self.imageSize[0], self.imageSize[1]])
@@ -66,11 +67,12 @@ class DatasetFromFolder(data.Dataset):
         # input_img_tensor, img_target_tensor = self.data_augm_obj.apply_image_transform(input_img, img_target, random_state=random_state, crop_dims=crop_dims)
 
         input_img_tensor = self.data_augm_obj.apply_image_transform(input_img)[0]
-        targets_tensor = self.data_augm_obj.apply_image_transform(target_img)[0]
+        target_tensor = input_img_tensor
+        # targets_tensor = self.data_augm_obj.apply_image_transform(target_img)[0]
         depth_tensor = self.data_augm_obj.apply_image_transform(depth)[0]
-        aif_tensor = self.data_augm_obj.apply_image_transform(aif)[0]
+        #aif_tensor = self.data_augm_obj.apply_image_transform(aif)[0] #for simcol3d uncomment this line
 
-        return input_img_tensor, targets_tensor, depth_tensor, aif_tensor
+        return input_img_tensor, target_tensor, depth_tensor #, aif_tensor #for simcol3d uncomment this line
 
     def __len__(self):
         return len(self.input_list)

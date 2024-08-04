@@ -36,6 +36,9 @@ def get_paths_list(root, dataset_name, phase, data_split, tasks, opt=None):
     if dataset_name == 'simcol3d':
         from .dataset_bank import dataset_simcol3d
         return dataset_simcol3d(root, data_split, tasks)
+    if dataset_name == 'iDFD':
+        from .dataset_bank import dataset_idfd
+        return dataset_idfd(root, data_split)
 
 def load_img(*filepaths):
     paths = []

@@ -40,3 +40,13 @@ def dataset_simcol3d(root, data_split, tasks):
 
     # return list(zip(input_list, targets_list))
     return input_list, targets_list, depths_list, aif_list
+
+
+def dataset_idfd(root, data_split):
+    #images for aperture f/2.8
+    input_list = sorted(glob.glob(join(root, 'Out_Of_Focus', data_split,'*.JPG'))) + sorted(glob.glob(join(root, 'Out_Of_Focus', '*.jpg'))) 
+    #images for aperture f/10
+    targets_list = sorted(glob.glob(join(root, 'All_In_Focus', data_split, '*.JPG'))) + sorted(glob.glob(join(root, 'All_In_Focus', '*.jpg'))) 
+    # specify here the depth gt folder (used just for evaluation in real time if the network is learning properly, not used for training)
+    depths_list = sorted(glob.glob(join(root, 'Depth', data_split, '*.png'))) 
+    return input_list[:4], targets_list[:4], depths_list[:4], []
