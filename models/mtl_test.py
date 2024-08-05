@@ -92,47 +92,30 @@ class MTL_Test():
 
         for it in tqdm(range(len(self.data_loader))):
             total_iter += 1
-            input_cpu, target_cpu, depth_cpu, aif_cpu = next(data_iter)#.next()
+            input_cpu, target_cpu, depth_cpu = next(data_iter)#.next()
+            
+            # # #Save NP.Arry of input image VVVVV####
+            # np.save('{}/input/{:04}.npy'.format(self.save_samples_path, it+1), input_cpu[0].permute(1, 2, 0))
+            
+            # # #Save NP.Arry of target image VVVVV####
+            # np.save('{}/target/{:04}.npy'.format(self.save_samples_path, it+1), target_cpu[0].permute(1, 2, 0))
+            
+            # Save Np.Array of depth GT to use for evaluation
+            depth_gt = depth_cpu[0,0].numpy().astype(np.uint16)
+            np.save('{}/depth_gt/{:04}.npy'.format(self.save_samples_path, it+1), depth_gt)
 
-            # target_temp=torch.stack(targets_cpu)
-            
-            # np.save('{}/input_array/input_{:04}.npy'.format(self.save_samples_path, it+1), input_cpu)
-            # np.save('{}/depth_target/depth_target_{:04}.npy'.format(self.save_samples_path, it+1), target_temp)
-            # ###########^^^^^^^^^^^############
-            
-            # #Save NP.Arry of AIF GT VVVVV####
-            # aif_data_temp = (aif_data.unsqueeze(0).cuda()).detach().cpu().clone().numpy()
-            # np.save('{}/aif_target/aif_target_{:04}.npy'.format(self.save_samples_path, it+1), aif_data_temp)
-           
-            
             input_gpu = input_cpu.to(self.cuda)
 
-
             with torch.no_grad():
-                outG_gpu, aif_pred = self.netG.forward(input_gpu)
-                # print("out", type(outG_gpu))
-                # print("aif", type(aif_pred))
+                depth_pred, aif_pred = self.netG.forward(input_gpu)
                 
-                # print("outG_gpu", type(outG_gpu))
-                # print("target_cpu", type(targets_cpu))
-                # print("aif_data", type(aif_data))
-                ######Converting list into tensor torch
-                # print("outG_gpu_temp2", type(outG_gpu_temp))
-                
-                #Save NP.Arry of outG_gpu GT VVVVV####
-                depth_input_temp = (outG_gpu.unsqueeze(0).cuda()).detach().cpu().clone().numpy()
-                #np.save('Results/pred_depth/outG_gpu'+str(total_iter)+'.npy', depth_input_temp)
-                
-                # np.save('{}/pred_depth/pred_depth_{:04}.npy'.format(self.save_samples_path, it+1), depth_input_temp)
-               
+                #Save NP.Arry of outG_gpu GT VVVVV####             
+                depth_pred_image = depth_pred.detach().cpu()[0,0].numpy().astype(np.uint16)
+                np.save('{}/depth_pred/{:04}.npy'.format(self.save_samples_path, it+1), depth_pred_image)
+    
                 #Save NP.Arry of AIF PredictionsVVVVVVVVVVV
-                aif_temp = (aif_pred.unsqueeze(0).cuda()).detach().cpu().clone().numpy()
-                np.save('{}/pred_aif/pred_aif_{:04}.npy'.format(self.save_samples_path, it+1), aif_temp)
-                
-            
-            # if self.opt.save_samples:
-            #     # self.save_images(input_gpu, aif_pred, outG_gpu[0], aif_data, targets_cpu[0], it + 1, 'test')
-            #     self.save_images(outG_gpu, it + 1, 'test')
+                self.save_rgb_as_png(aif_pred, '{}/aif_pred/{:04}.jpg'.format(self.save_samples_path, it+1))
+                np.save('{}/aif_pred/{:04}.npy'.format(self.save_samples_path, it+1), aif_pred.detach().cpu()[0].permute(1, 2, 0))
 
 
     def create_G_network(self):
@@ -183,7 +166,7 @@ class MTL_Test():
         # else:
         #     self.save_rgb_as_png(data=tensor, filename=filename)
 
-    def create_save_folders(self, subfolders=['input', 'target', 'output', 'input_aif', 'output_aif', 'target', 'depth_target', 'aif_target', 'pred_aif', 'pred_depth', 'input_array']):
+    def create_save_folders(self, subfolders=['input', 'target', 'depth_gt', 'aif_pred', 'depth_pred']):
         if self.opt.save_samples:
             if self.opt.test:
                 self.save_samples_path = os.path.join('results', self.opt.model, self.opt.name, self.opt.epoch)
